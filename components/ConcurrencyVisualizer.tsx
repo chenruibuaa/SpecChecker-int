@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Thread, ThreadEvent, ConcurrencyRelation } from '../types';
 
@@ -150,8 +151,8 @@ const ConcurrencyVisualizer: React.FC<ConcurrencyVisualizerProps> = ({ threads, 
                             onClick={() => onEventClick && onEventClick(evt)}
                             className="cursor-pointer hover:opacity-80 transition-opacity"
                         >
-                            {/* Time Marker */}
-                            <text x={20} y={y + 4} className="text-[10px] fill-[#57606a] font-mono">t={evt.timestamp}</text>
+                            {/* Time Marker - Removed Text, kept grid line for structure */}
+                            {/* <text x={20} y={y + 4} className="text-[10px] fill-[#57606a] font-mono">t={evt.timestamp}</text> */}
                             <line x1={40} y1={y} x2={width-40} y2={y} stroke="#eaeef2" strokeWidth="1" />
 
                             {/* Event Box */}
