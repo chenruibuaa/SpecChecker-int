@@ -11,9 +11,11 @@ function createWindow() {
     minHeight: 768,
     title: "SpecChecker-Int",
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      // Use app.getAppPath() to ensure correct path in both dev and packaged environments
+      preload: path.join(app.getAppPath(), 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: false, // Disable sandbox to ensure preload has full access
       webSecurity: false
     }
   });

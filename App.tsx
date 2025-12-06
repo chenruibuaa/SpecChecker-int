@@ -4,7 +4,7 @@ import {
   LayoutDashboard, 
   ShieldAlert, 
   FileCode, 
-  Network, // Replaced GitGraph
+  Network, 
   CheckCircle, 
   XCircle, 
   Search,
@@ -45,6 +45,9 @@ import { Issue, Severity, Status, IssueType, ThreadEvent, FileNode, ConcurrencyR
 import DataFlowVisualizer from './components/DataFlowVisualizer';
 import ConcurrencyVisualizer from './components/ConcurrencyVisualizer';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
+
+// Fix for Editor type definition issue where props are inferred as never
+const MonacoEditor = Editor as any;
 
 // --- Configuration Types ---
 interface ISRConfig {
@@ -120,9 +123,11 @@ const FileTreeItem: React.FC<{ node: FileNode; onFileClick: (path: string) => vo
 
 
 const App: React.FC = () => {
-  // IPC Refs
-  // @ts-ignore
-  const ipcRenderer = typeof window !== 'undefined' && window.electronAPI ? window.electronAPI : null;
+  // IPC Access Helper
+  const getElectronAPI = () => {
+    // @ts-ignore
+    return typeof window !== 'undefined' ? window.electronAPI : null;
+  };
 
   // Project State
   const [projectPath, setProjectPath] = useState<string | null>(null);
@@ -182,40 +187,30 @@ const App: React.FC = () => {
   const [showConfigPreview, setShowConfigPreview] = useState(false);
 
   // Detect Electron Environment
-  const isElectron = useMemo(() => {
-    // @ts-ignore
-    return typeof window !== 'undefined' && window.electronAPI;
-  }, []);
-
+  const [isElectron, setIsElectron] = useState(false);
+  
   useEffect(() => {
-    // If we're not in Electron (e.g. web preview), load mock issues initially
-    if (!isElectron) {
-      setIssues(MOCK_ISSUES);
-    }
-    
-    if (ipcRenderer) {
-      ipcRenderer.on('analysis-progress', (_: any, data: { progress: number, message: string }) => {
-        setAnalysisProgress(data.progress);
-        setAnalysisMessage(data.message);
-      });
-    }
-
-    return () => {
-       if (ipcRenderer && ipcRenderer.removeAllListeners) ipcRenderer.removeAllListeners('analysis-progress');
-    }
-  }, [isElectron, ipcRenderer]);
+      const api = getElectronAPI();
+      setIsElectron(!!api);
+      if (!api) {
+          setIssues(MOCK_ISSUES);
+      } else {
+          // Setup listeners
+          api.on('analysis-progress', (_: any, data: { progress: number, message: string }) => {
+            setAnalysisProgress(data.progress);
+            setAnalysisMessage(data.message);
+          });
+          return () => {
+             if (api.removeAllListeners) api.removeAllListeners('analysis-progress');
+          }
+      }
+  }, []);
 
   // Handle Monaco Line Highlight in Issue View
   const handleEditorDidMount = (editor: any) => {
     editorRef.current = editor;
   };
 
-  useEffect(() => {
-    // Scroll Logic for Monaco is handled when data changes or issue is selected
-    // But for the simple HTML code view (if any), or standard scrolling:
-    // With Monaco, we use the editor instance
-  }, [highlightedLine, selectedIssueId]);
-  
   useEffect(() => {
       setHighlightedLine(null);
   }, [selectedIssueId]);
@@ -224,12 +219,13 @@ const App: React.FC = () => {
   // --- Project Management Functions ---
 
   const handleOpenProject = async () => {
-    if (!ipcRenderer) {
+    const api = getElectronAPI();
+    if (!api) {
       alert("此功能需要 Electron 桌面环境。");
       return;
     }
 
-    const path = await ipcRenderer.invoke('open-project-dialog');
+    const path = await api.invoke('open-project-dialog');
     if (path) {
       setProjectPath(path);
       setIssues([]); // Clear old issues
@@ -238,15 +234,16 @@ const App: React.FC = () => {
       setCurrentCodeFile(null);
       
       // Load File Tree
-      const tree = await ipcRenderer.invoke('read-project-tree', path);
+      const tree = await api.invoke('read-project-tree', path);
       setFileTree(tree);
       setView('code'); // Switch to code browser
     }
   };
 
   const handleFileClick = async (filePath: string) => {
-    if (!ipcRenderer) return;
-    const content = await ipcRenderer.invoke('read-file-content', filePath);
+    const api = getElectronAPI();
+    if (!api) return;
+    const content = await api.invoke('read-file-content', filePath);
     // Simple extraction of file name
     const name = filePath.split(/[\\/]/).pop() || 'unknown';
     setCurrentCodeFile({ name, content });
@@ -254,19 +251,20 @@ const App: React.FC = () => {
   };
 
   const handleRunAnalysis = async () => {
-     if (!projectPath || !ipcRenderer) return;
+     const api = getElectronAPI();
+     if (!projectPath || !api) return;
      
      setIsAnalyzing(true);
      setAnalysisProgress(0);
      setAnalysisMessage('正在启动引擎...');
 
      try {
-       const resultPath = await ipcRenderer.invoke('run-analysis-engine', projectPath);
+       const resultPath = await api.invoke('run-analysis-engine', projectPath);
        // Analysis Complete
        setIsAnalyzing(false);
        
        // Load results
-       const resultJson = await ipcRenderer.invoke('read-file-content', resultPath);
+       const resultJson = await api.invoke('read-file-content', resultPath);
        const data = JSON.parse(resultJson);
        
        if (data.issues) {
@@ -814,7 +812,7 @@ const App: React.FC = () => {
                              </span>
                           </div>
                           <div className="h-[300px]">
-                            <Editor
+                            <MonacoEditor
                                 height="100%"
                                 defaultLanguage="cpp"
                                 value={getCleanCode(selectedIssue.rawCodeSnippet)}
@@ -823,7 +821,7 @@ const App: React.FC = () => {
                                     readOnly: true,
                                     minimap: { enabled: false },
                                     scrollBeyondLastLine: false,
-                                    lineNumbers: (lineNumber) => {
+                                    lineNumbers: (lineNumber: any) => {
                                          // Map Monaco line number back to original snippet line number if possible
                                          const mapping = getLineMapping(selectedIssue.rawCodeSnippet);
                                          const map = mapping.find(m => m.realLine === lineNumber);
@@ -831,7 +829,7 @@ const App: React.FC = () => {
                                     },
                                     renderLineHighlight: 'all',
                                 }}
-                                onMount={(editor, monaco) => {
+                                onMount={(editor: any, monaco: any) => {
                                     // Highlight the specific defect line
                                     const mapping = getLineMapping(selectedIssue.rawCodeSnippet);
                                     const map = mapping.find(m => m.origLine === selectedIssue.line);
@@ -879,7 +877,7 @@ const App: React.FC = () => {
                                 <span className="text-xs text-[#57606a]">只读 (Read-only)</span>
                             </div>
                             <div className="flex-1 overflow-hidden">
-                                <Editor
+                                <MonacoEditor
                                     height="100%"
                                     defaultLanguage={currentCodeFile.name.endsWith('.ts') || currentCodeFile.name.endsWith('.tsx') ? 'typescript' : 'cpp'}
                                     value={currentCodeFile.content}
