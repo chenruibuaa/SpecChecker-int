@@ -37,7 +37,8 @@ import {
   File,
   ChevronRight,
   ChevronDown,
-  Loader2
+  Loader2,
+  Video
 } from 'lucide-react';
 import Editor, { useMonaco } from '@monaco-editor/react';
 import { MOCK_ISSUES } from './constants';
@@ -45,6 +46,7 @@ import { Issue, Severity, Status, IssueType, ThreadEvent, FileNode, ConcurrencyR
 import DataFlowVisualizer from './components/DataFlowVisualizer';
 import ConcurrencyVisualizer from './components/ConcurrencyVisualizer';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
+import { GoogleGenAI } from "@google/genai";
 
 // Fix for Editor type definition issue where props are inferred as never
 const MonacoEditor = Editor as any;
@@ -148,6 +150,14 @@ const App: React.FC = () => {
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Video Generation State
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [demoVideoUrl, setDemoVideoUrl] = useState<string | null>(null);
+  const [videoStatus, setVideoStatus] = useState<string>('');
+  const [currentSubtitle, setCurrentSubtitle] = useState<string>('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   // Monaco Ref
   const editorRef = useRef<any>(null);
 
@@ -215,6 +225,22 @@ const App: React.FC = () => {
       setHighlightedLine(null);
   }, [selectedIssueId]);
 
+  // --- Video Subtitle Sync Logic ---
+  const subtitles = [
+      { start: 0, end: 3, text: "欢迎使用 SpecChecker-Int" },
+      { start: 3, end: 6, text: "专业的嵌入式静态代码分析审查平台" },
+      { start: 6, end: 9, text: "支持并发缺陷、数据流追踪与中断配置审查" },
+      { start: 9, end: 12, text: "一键生成报告，让代码更安全、更可靠" },
+  ];
+
+  const handleVideoTimeUpdate = () => {
+      if (videoRef.current) {
+          const currentTime = videoRef.current.currentTime;
+          const currentSub = subtitles.find(s => currentTime >= s.start && currentTime < s.end);
+          setCurrentSubtitle(currentSub ? currentSub.text : '');
+      }
+  };
+
 
   // --- Project Management Functions ---
 
@@ -277,6 +303,67 @@ const App: React.FC = () => {
        setIsAnalyzing(false);
        alert("分析过程中发生错误。");
      }
+  };
+
+  const handleGenerateDemoVideo = async () => {
+      setShowVideoModal(true);
+      if (demoVideoUrl) return; // Already generated
+
+      setIsGeneratingVideo(true);
+      setVideoStatus('正在连接 Google Veo 模型...');
+
+      try {
+          // Check API Key
+          // @ts-ignore
+          if (window.aistudio && window.aistudio.hasSelectedApiKey) {
+              // @ts-ignore
+              const hasKey = await window.aistudio.hasSelectedApiKey();
+              if (!hasKey) {
+                   setVideoStatus('请选择 API Key 以继续...');
+                   // @ts-ignore
+                   await window.aistudio.openSelectKey();
+                   // Re-check just in case, but usually we proceed
+              }
+          }
+
+          setVideoStatus('正在初始化 AI 引擎...');
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          
+          setVideoStatus('AI 正在构思并生成 SpecChecker-Int 演示视频 (这可能需要几分钟)...');
+          
+          let operation = await ai.models.generateVideos({
+              model: 'veo-3.1-fast-generate-preview',
+              prompt: 'A close up shot of a computer monitor displaying a professional software application named "SpecChecker-Int". The UI is light themed with code editor, a file tree on the left, and data visualization charts. Red and yellow warning icons indicate code defects. High tech, detailed, 4k resolution.',
+              config: {
+                numberOfVideos: 1,
+                resolution: '1080p', 
+                aspectRatio: '16:9'
+              }
+            });
+
+            while (!operation.done) {
+              setVideoStatus('视频渲染中，请稍候... (Veo Model Thinking)');
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              operation = await ai.operations.getVideosOperation({operation: operation});
+            }
+
+            if (operation.response?.generatedVideos?.[0]?.video?.uri) {
+                setVideoStatus('正在下载视频流...');
+                const downloadLink = operation.response.generatedVideos[0].video.uri;
+                const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                setDemoVideoUrl(url);
+                setIsGeneratingVideo(false);
+            } else {
+                throw new Error("No video generated");
+            }
+
+      } catch (error) {
+          console.error(error);
+          setVideoStatus('生成失败: ' + (error as any).message);
+          setIsGeneratingVideo(false);
+      }
   };
 
 
@@ -550,6 +637,67 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* Video Demo Modal */}
+      {showVideoModal && (
+          <div className="fixed inset-0 bg-[#24292f]/80 backdrop-blur-md z-50 flex items-center justify-center">
+              <div className="bg-white rounded-lg shadow-2xl w-[900px] border border-[#d0d7de] overflow-hidden flex flex-col max-h-[90vh]">
+                  <div className="p-4 border-b border-[#d0d7de] flex justify-between items-center bg-[#f6f8fa]">
+                      <h3 className="font-bold flex items-center gap-2 text-[#24292f]">
+                          <Video size={18} className="text-[#0969da]" /> 
+                          SpecChecker-Int 产品演示 (AI 概念生成)
+                      </h3>
+                      <button onClick={() => setShowVideoModal(false)} className="text-[#57606a] hover:text-[#24292f]">
+                          <X size={20} />
+                      </button>
+                  </div>
+                  
+                  <div className="flex-1 bg-black flex items-center justify-center relative aspect-video">
+                      {isGeneratingVideo ? (
+                          <div className="text-center text-white p-8">
+                              <Loader2 size={48} className="animate-spin mx-auto mb-4 text-[#0969da]" />
+                              <h4 className="text-lg font-semibold mb-2">正在生成演示视频...</h4>
+                              <p className="text-gray-400 text-sm">{videoStatus}</p>
+                          </div>
+                      ) : demoVideoUrl ? (
+                          <>
+                            <video 
+                                ref={videoRef}
+                                src={demoVideoUrl} 
+                                autoPlay 
+                                controls 
+                                loop 
+                                className="w-full h-full object-contain"
+                                onTimeUpdate={handleVideoTimeUpdate}
+                            />
+                            {/* Subtitle Overlay */}
+                            {currentSubtitle && (
+                                <div className="absolute bottom-12 left-0 right-0 text-center pointer-events-none">
+                                    <span className="bg-black/70 text-white px-4 py-2 rounded text-lg font-medium backdrop-blur-sm">
+                                        {currentSubtitle}
+                                    </span>
+                                </div>
+                            )}
+                          </>
+                      ) : (
+                          <div className="text-center text-white">
+                              <p className="mb-4 text-gray-400">点击下方按钮生成产品概念演示视频</p>
+                              <button 
+                                onClick={handleGenerateDemoVideo}
+                                className="px-6 py-3 bg-[#0969da] hover:bg-[#085dc7] text-white rounded-full font-bold transition-all shadow-lg flex items-center gap-2 mx-auto"
+                              >
+                                  <Zap size={18} /> 开始生成 (Google Veo)
+                              </button>
+                          </div>
+                      )}
+                  </div>
+                  
+                  <div className="p-4 bg-white text-xs text-[#57606a] border-t border-[#d0d7de]">
+                      <p>说明：此视频由 Google Veo AI 模型根据产品描述实时生成。它展示了 SpecChecker-Int 的概念界面，而非真实录屏。</p>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Top Navigation Bar */}
       <nav className="h-14 bg-[#24292f] text-white flex items-center justify-between px-6 shadow-sm z-30 shrink-0">
          <div className="flex items-center gap-6">
@@ -581,6 +729,14 @@ const App: React.FC = () => {
               >
                 {isAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                 运行分析
+              </button>
+              
+              <button 
+                onClick={() => setShowVideoModal(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md transition-all text-sm font-medium hover:bg-[#373e47] text-white/90 ml-2 border border-[#57606a]"
+              >
+                <Video size={14} />
+                演示视频
               </button>
             </div>
          </div>
