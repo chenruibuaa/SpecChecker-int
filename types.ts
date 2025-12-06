@@ -26,6 +26,14 @@ export interface CodeLocation {
   code: string;
 }
 
+// For File Explorer
+export interface FileNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  children?: FileNode[];
+}
+
 // For Data Flow Visualization
 export interface DataFlowNode {
   id: string;
