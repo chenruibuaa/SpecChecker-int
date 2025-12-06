@@ -1,0 +1,95 @@
+
+{
+  "meta": {
+    "project": "Demo Embedded Project",
+    "version": "1.0",
+    "tool": "SpecChecker-Int Engine",
+    "exportedAt": "2023-11-15T09:30:00Z"
+  },
+  "issues": [
+    {
+      "id": "demo-race-01",
+      "title": "Data Race on 'system_flags'",
+      "description": "Read-Modify-Write race condition between main loop and SysTick_Handler on shared variable 'system_flags'.",
+      "severity": "CRITICAL",
+      "type": "CONCURRENCY",
+      "status": "OPEN",
+      "file": "drivers/system.c",
+      "line": 42,
+      "rawCodeSnippet": "40: void update_flags() {\n41:     // RMW operation is not atomic\n42:     system_flags |= 0x01;\n43: }",
+      "concurrency": {
+        "threads": [
+          { "id": "t1", "name": "Main Loop", "type": "main" },
+          { "id": "t2", "name": "SysTick_Handler", "type": "isr" }
+        ],
+        "events": [
+          { "id": "e1", "threadId": "t1", "timestamp": 10, "action": "read", "resource": "system_flags", "description": "Read flags (0x00)", "line": 42 },
+          { "id": "e2", "threadId": "t2", "timestamp": 12, "action": "write", "resource": "system_flags", "description": "ISR sets bit 2 (0x04)", "line": 80 },
+          { "id": "e3", "threadId": "t1", "timestamp": 15, "action": "write", "resource": "system_flags", "description": "Write back 0x01 (Overwrites ISR)", "line": 42 }
+        ],
+        "relations": [
+           { "sourceId": "e2", "targetId": "e3", "type": "conflict", "description": "Lost Update" }
+        ]
+      }
+    },
+    {
+      "id": "demo-atomicity-02",
+      "title": "Atomicity Violation in Buffer",
+      "description": "Buffer index and count are updated separately. ISR reads inconsistent state.",
+      "severity": "HIGH",
+      "type": "CONCURRENCY",
+      "status": "OPEN",
+      "file": "lib/ringbuffer.c",
+      "line": 55,
+      "rawCodeSnippet": "54:    buffer[head] = data;\n55:    head = (head + 1) % SIZE;\n56:    // <--- ISR Interrupts here\n57:    count++;",
+      "concurrency": {
+         "threads": [
+          { "id": "t1", "name": "Producer", "type": "main" },
+          { "id": "t2", "name": "Consumer ISR", "type": "isr" }
+        ],
+        "events": [
+          { "id": "e1", "threadId": "t1", "timestamp": 10, "action": "write", "resource": "head", "description": "Update head index", "line": 55 },
+          { "id": "e2", "threadId": "t2", "timestamp": 12, "action": "read", "resource": "head", "description": "ISR reads new head", "line": 90 },
+          { "id": "e3", "threadId": "t2", "timestamp": 14, "action": "read", "resource": "count", "description": "ISR reads OLD count (Empty?)", "line": 91 },
+          { "id": "e4", "threadId": "t1", "timestamp": 16, "action": "write", "resource": "count", "description": "Update count", "line": 57 }
+        ],
+        "relations": [
+           { "sourceId": "e3", "targetId": "e4", "type": "conflict", "description": "Inconsistent View" }
+        ]
+      }
+    },
+    {
+      "id": "demo-oob-03",
+      "title": "Array Index Out of Bounds",
+      "description": "Loop terminates at i <= 10, accessing sensor_data[10] which is out of bounds (Size 10).",
+      "severity": "HIGH",
+      "type": "QUALITY",
+      "status": "OPEN",
+      "file": "app/sensor.c",
+      "line": 25,
+      "rawCodeSnippet": "23: int sensor_data[10];\n24: for(int i=0; i<=10; i++) {\n25:     sensor_data[i] = read_adc();\n26: }"
+    },
+    {
+      "id": "demo-div0-04",
+      "title": "Division by Zero",
+      "description": "Variable 'scale_factor' can be 0, leading to a crash.",
+      "severity": "MEDIUM",
+      "type": "QUALITY",
+      "status": "OPEN",
+      "file": "math/scaling.c",
+      "line": 102,
+      "rawCodeSnippet": "100: int scale_input(int input, int scale_factor) {\n101:     // Missing check for scale_factor == 0\n102:     return input / scale_factor;\n103: }"
+    },
+    {
+      "id": "demo-uninit-05",
+      "title": "Use of Uninitialized Variable",
+      "description": "Variable 'temp' is used in calculation without initialization in some paths.",
+      "severity": "MEDIUM",
+      "type": "QUALITY",
+      "status": "OPEN",
+      "file": "logic/process.c",
+      "line": 15,
+      "rawCodeSnippet": "10: int process(int mode) {\n11:     int temp;\n12:     if (mode > 5) temp = 10;\n13:     // if mode <= 5, temp is garbage\n14:     return temp * 2;\n15: }"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "SpecChecker-Int",
+  "description": "专业的静态代码分析结果审查工具，提供数据流追踪与并发缺陷的可视化展示。",
+  "requestFramePermissions": []
+}
