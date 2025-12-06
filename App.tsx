@@ -4,7 +4,7 @@ import {
   LayoutDashboard, 
   ShieldAlert, 
   FileCode, 
-  GitGraph, 
+  Network, // Replaced GitGraph
   CheckCircle, 
   XCircle, 
   Search,
@@ -39,6 +39,7 @@ import {
   ChevronDown,
   Loader2
 } from 'lucide-react';
+import Editor, { useMonaco } from '@monaco-editor/react';
 import { MOCK_ISSUES } from './constants';
 import { Issue, Severity, Status, IssueType, ThreadEvent, FileNode, ConcurrencyRelation } from './types';
 import DataFlowVisualizer from './components/DataFlowVisualizer';
@@ -120,7 +121,8 @@ const FileTreeItem: React.FC<{ node: FileNode; onFileClick: (path: string) => vo
 
 const App: React.FC = () => {
   // IPC Refs
-  const ipcRenderer = typeof window !== 'undefined' && window.require ? window.require('electron').ipcRenderer : null;
+  // @ts-ignore
+  const ipcRenderer = typeof window !== 'undefined' && window.electronAPI ? window.electronAPI : null;
 
   // Project State
   const [projectPath, setProjectPath] = useState<string | null>(null);
@@ -140,6 +142,9 @@ const App: React.FC = () => {
   const [view, setView] = useState<'dashboard' | 'issues' | 'settings' | 'code'>('dashboard');
   const [highlightedLine, setHighlightedLine] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Monaco Ref
+  const editorRef = useRef<any>(null);
 
   // --- Configuration State (ISR & Rules) ---
   const [isrList, setIsrList] = useState<ISRConfig[]>([
@@ -178,7 +183,8 @@ const App: React.FC = () => {
 
   // Detect Electron Environment
   const isElectron = useMemo(() => {
-    return typeof navigator === 'object' && /Electron/i.test(navigator.userAgent);
+    // @ts-ignore
+    return typeof window !== 'undefined' && window.electronAPI;
   }, []);
 
   useEffect(() => {
@@ -195,20 +201,21 @@ const App: React.FC = () => {
     }
 
     return () => {
-       if (ipcRenderer) ipcRenderer.removeAllListeners('analysis-progress');
+       if (ipcRenderer && ipcRenderer.removeAllListeners) ipcRenderer.removeAllListeners('analysis-progress');
     }
   }, [isElectron, ipcRenderer]);
 
-  // Scroll to highlighted line
-  useEffect(() => {
-    if (highlightedLine !== null) {
-      const element = document.getElementById(`code-line-${highlightedLine}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  }, [highlightedLine, selectedIssueId]);
+  // Handle Monaco Line Highlight in Issue View
+  const handleEditorDidMount = (editor: any) => {
+    editorRef.current = editor;
+  };
 
+  useEffect(() => {
+    // Scroll Logic for Monaco is handled when data changes or issue is selected
+    // But for the simple HTML code view (if any), or standard scrolling:
+    // With Monaco, we use the editor instance
+  }, [highlightedLine, selectedIssueId]);
+  
   useEffect(() => {
       setHighlightedLine(null);
   }, [selectedIssueId]);
@@ -218,7 +225,7 @@ const App: React.FC = () => {
 
   const handleOpenProject = async () => {
     if (!ipcRenderer) {
-      alert("This feature requires the Electron Desktop Client.");
+      alert("此功能需要 Electron 桌面环境。");
       return;
     }
 
@@ -251,7 +258,7 @@ const App: React.FC = () => {
      
      setIsAnalyzing(true);
      setAnalysisProgress(0);
-     setAnalysisMessage('Starting Engine...');
+     setAnalysisMessage('正在启动引擎...');
 
      try {
        const resultPath = await ipcRenderer.invoke('run-analysis-engine', projectPath);
@@ -360,7 +367,7 @@ const App: React.FC = () => {
              setView('issues');
         } else if (json.runs) {
              // SARIF import logic (simplified)
-             alert("SARIF Import not fully implemented in this demo.");
+             alert("SARIF 导入功能在此演示中仅为占位符。");
         }
       } catch (err) {
         console.error(err);
@@ -379,11 +386,6 @@ const App: React.FC = () => {
           config: { isrList, controlRules }
       };
       downloadJson(data, `specchecker-project-${Date.now()}.json`);
-  };
-
-  const handleExportSarif = () => {
-    // Simplified stub
-    alert("Exporting SARIF...");
   };
 
   const downloadJson = (data: any, filename: string) => {
@@ -416,9 +418,9 @@ const App: React.FC = () => {
     const medium = issues.filter(i => i.severity === Severity.MEDIUM).length;
     
     const byStatus = [
-      { name: 'Open', value: issues.filter(i => i.status === Status.OPEN).length, color: '#0969da' },
-      { name: 'Confirmed', value: issues.filter(i => i.status === Status.CONFIRMED).length, color: '#1a7f37' },
-      { name: 'False Positive', value: issues.filter(i => i.status === Status.FALSE_POSITIVE).length, color: '#8c959f' },
+      { name: '未处理', value: issues.filter(i => i.status === Status.OPEN).length, color: '#0969da' },
+      { name: '已确认', value: issues.filter(i => i.status === Status.CONFIRMED).length, color: '#1a7f37' },
+      { name: '误报', value: issues.filter(i => i.status === Status.FALSE_POSITIVE).length, color: '#8c959f' },
     ];
     
     return { total, critical, high, medium, byStatus };
@@ -434,11 +436,6 @@ const App: React.FC = () => {
       }
   };
 
-  const getLineNumber = (lineText: string): number | null => {
-      const match = lineText.match(/^\s*(\d+):/);
-      return match ? parseInt(match[1]) : null;
-  };
-
   const getSeverityColor = (sev: Severity) => {
     switch (sev) {
       case Severity.CRITICAL: return 'bg-[#ffebe9] text-[#cf222e] border-[#ff818266]';
@@ -451,7 +448,7 @@ const App: React.FC = () => {
 
   const getTypeIcon = (type: IssueType) => {
     switch(type) {
-      case IssueType.DATA_FLOW: return <GitGraph size={16} />;
+      case IssueType.DATA_FLOW: return <Network size={16} />; // Replaced GitGraph
       case IssueType.CONCURRENCY: return <Activity size={16} />;
       case IssueType.SECURITY: return <ShieldAlert size={16} />;
       default: return <Bug size={16} />;
@@ -506,6 +503,23 @@ const App: React.FC = () => {
       return rule.targetDetail || 'Specific';
   };
 
+  // Helper to strip "12: " line number prefix for Monaco
+  const getCleanCode = (rawSnippet: string) => {
+      return rawSnippet.split('\n').map(line => line.replace(/^\s*\d+:\s*/, '')).join('\n');
+  };
+
+  // Helper to extract line number mapping for decorations
+  const getLineMapping = (rawSnippet: string) => {
+      const mapping: {realLine: number, origLine: number}[] = [];
+      rawSnippet.split('\n').forEach((line, index) => {
+          const match = line.match(/^\s*(\d+):/);
+          if (match) {
+              mapping.push({ realLine: index + 1, origLine: parseInt(match[1]) });
+          }
+      });
+      return mapping;
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#f6f8fa] text-[#24292f]">
       
@@ -524,7 +538,7 @@ const App: React.FC = () => {
                  <div className="flex justify-center mb-4">
                     <Loader2 className="animate-spin text-[#0969da]" size={40} />
                  </div>
-                 <h3 className="text-lg font-bold text-[#24292f] mb-2">Executing Analysis Engine</h3>
+                 <h3 className="text-lg font-bold text-[#24292f] mb-2">正在执行分析引擎</h3>
                  <p className="text-[#57606a] text-sm mb-4 min-h-[1.5rem]">{analysisMessage}</p>
                  
                  <div className="w-full bg-[#eaeef2] rounded-full h-2.5 mb-2">
@@ -546,7 +560,7 @@ const App: React.FC = () => {
               <h1 className="font-semibold text-lg tracking-tight">SpecChecker-Int</h1>
               {isElectron && (
                 <span className="px-2 py-0.5 rounded bg-[#0969da] border border-[#0969da] text-[10px] text-white font-medium flex items-center gap-1">
-                    <Monitor size={10} /> Client
+                    <Monitor size={10} /> 客户端
                 </span>
               )}
             </div>
@@ -606,8 +620,8 @@ const App: React.FC = () => {
       {/* Main Content Area with Sidebar */}
       <div className="flex flex-1 overflow-hidden">
          
-         {/* File Explorer Sidebar */}
-         {projectPath && (
+         {/* File Explorer Sidebar - Only show in Code View */}
+         {projectPath && view === 'code' && (
            <aside className="w-64 bg-white border-r border-[#d0d7de] flex flex-col shrink-0">
               <div className="p-3 border-b border-[#d0d7de] bg-[#f6f8fa] flex items-center gap-2">
                  <Layers size={14} className="text-[#57606a]" />
@@ -615,7 +629,7 @@ const App: React.FC = () => {
               </div>
               <div className="flex-1 overflow-y-auto p-2">
                  {fileTree.length === 0 ? (
-                    <div className="text-xs text-[#57606a] p-2 text-center">Loading files...</div>
+                    <div className="text-xs text-[#57606a] p-2 text-center">正在加载文件...</div>
                  ) : (
                     fileTree.map(node => (
                       <FileTreeItem key={node.path} node={node} onFileClick={handleFileClick} />
@@ -706,25 +720,25 @@ const App: React.FC = () => {
                    <div className="p-3 border-b border-[#d0d7de] flex gap-2 bg-[#f6f8fa]">
                       <div className="relative flex-1">
                         <Search size={14} className="absolute left-2.5 top-2.5 text-[#57606a]" />
-                        <input type="text" placeholder="Filter issues..." className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#d0d7de] rounded-md text-sm focus:outline-none focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]" />
+                        <input type="text" placeholder="过滤缺陷..." className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#d0d7de] rounded-md text-sm focus:outline-none focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da]" />
                       </div>
                       <div className="flex gap-1">
                          <button 
                             onClick={() => setFilterSeverity(prev => prev === 'ALL' ? Severity.CRITICAL : prev === Severity.CRITICAL ? Severity.HIGH : 'ALL')}
-                            className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" title="Severity"
+                            className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" title="严重程度过滤"
                          >
                              <Filter size={16} />
                          </button>
                          <button 
                            onClick={() => setFilterType(prev => prev === 'ALL' ? IssueType.CONCURRENCY : 'ALL')}
-                           className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" title="Type"
+                           className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" title="类型过滤"
                           >
                              <Layers size={16} />
                          </button>
-                         <button className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" onClick={handleExportFullData} title="Export JSON">
+                         <button className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" onClick={handleExportFullData} title="导出 JSON">
                             <Download size={16} />
                          </button>
-                         <button className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" onClick={handleImportClick} title="Import">
+                         <button className="p-1.5 border border-[#d0d7de] rounded-md hover:bg-[#eaeef2] text-[#57606a]" onClick={handleImportClick} title="导入">
                             <UploadCloud size={16} />
                          </button>
                       </div>
@@ -770,10 +784,10 @@ const App: React.FC = () => {
                           </div>
                           <div className="flex gap-2">
                              <button onClick={() => handleUpdateStatus(selectedIssue.id, Status.CONFIRMED)} className="px-3 py-1.5 bg-[#1f883d] text-white text-xs font-bold rounded-md hover:bg-[#1a7f37] border border-[rgba(255,255,255,0.1)]">
-                               Confirm
+                               确认 (Confirm)
                              </button>
                              <button onClick={() => handleUpdateStatus(selectedIssue.id, Status.FALSE_POSITIVE)} className="px-3 py-1.5 bg-[#f6f8fa] text-[#24292f] border border-[#d0d7de] text-xs font-bold rounded-md hover:bg-[#eaeef2]">
-                               False Positive
+                               误报 (False Positive)
                              </button>
                           </div>
                        </div>
@@ -792,42 +806,50 @@ const App: React.FC = () => {
                           />
                        )}
 
-                       {/* Code Editor View */}
+                       {/* Code Editor View (Snippet) */}
                        <div className="bg-white border border-[#d0d7de] rounded-md shadow-sm overflow-hidden">
                           <div className="flex items-center justify-between px-3 py-2 bg-[#f6f8fa] border-b border-[#d0d7de]">
                              <span className="text-xs font-mono font-semibold text-[#57606a] flex items-center gap-2">
                                <FileCode size={14} /> {selectedIssue.file}
                              </span>
                           </div>
-                          <div className="p-0 overflow-x-auto bg-white text-sm font-mono leading-6 code-scroll max-h-[400px]">
-                            <table className="w-full border-collapse">
-                              <tbody>
-                                {selectedIssue.rawCodeSnippet.split('\n').map((line, idx) => {
-                                  if (!line.trim()) return null;
-                                  const lineNum = getLineNumber(line);
-                                  const isIssueLine = lineNum === selectedIssue.line;
-                                  const isHighlighted = lineNum === highlightedLine;
-                                  
-                                  return (
-                                    <tr 
-                                        key={idx} 
-                                        id={lineNum ? `code-line-${lineNum}` : undefined}
-                                        className={`
-                                            ${isIssueLine ? 'bg-[#ffebe9]' : ''}
-                                            ${isHighlighted ? 'bg-[#fff8c5]' : ''}
-                                        `}
-                                    >
-                                      <td className="w-10 text-right pr-3 text-[#57606a] select-none border-r border-[#d0d7de] bg-[#f6f8fa] text-[11px] py-0.5">
-                                          {lineNum || ''}
-                                      </td>
-                                      <td className="pl-4 py-0.5 whitespace-pre text-[#24292f]">
-                                          {line.replace(/^\s*\d+:\s*/, '')}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                          <div className="h-[300px]">
+                            <Editor
+                                height="100%"
+                                defaultLanguage="cpp"
+                                value={getCleanCode(selectedIssue.rawCodeSnippet)}
+                                theme="light"
+                                options={{
+                                    readOnly: true,
+                                    minimap: { enabled: false },
+                                    scrollBeyondLastLine: false,
+                                    lineNumbers: (lineNumber) => {
+                                         // Map Monaco line number back to original snippet line number if possible
+                                         const mapping = getLineMapping(selectedIssue.rawCodeSnippet);
+                                         const map = mapping.find(m => m.realLine === lineNumber);
+                                         return map ? map.origLine.toString() : lineNumber.toString();
+                                    },
+                                    renderLineHighlight: 'all',
+                                }}
+                                onMount={(editor, monaco) => {
+                                    // Highlight the specific defect line
+                                    const mapping = getLineMapping(selectedIssue.rawCodeSnippet);
+                                    const map = mapping.find(m => m.origLine === selectedIssue.line);
+                                    const targetLine = map ? map.realLine : (highlightedLine ? mapping.find(m => m.origLine === highlightedLine)?.realLine : null);
+                                    
+                                    if (targetLine) {
+                                        editor.revealLineInCenter(targetLine);
+                                        editor.deltaDecorations([], [{
+                                            range: new monaco.Range(targetLine, 1, targetLine, 1),
+                                            options: {
+                                                isWholeLine: true,
+                                                className: 'bg-[#ffebe9]',
+                                                glyphMarginClassName: 'bg-[#cf222e]'
+                                            }
+                                        }]);
+                                    }
+                                }}
+                            />
                           </div>
                        </div>
 
@@ -844,22 +866,30 @@ const App: React.FC = () => {
               </div>
             )}
             
-            {/* VIEW: CODE BROWSER */}
+            {/* VIEW: CODE BROWSER (Monaco) */}
             {view === 'code' && (
                 <div className="flex flex-col h-full bg-white">
                     {currentCodeFile ? (
                         <>
-                            <div className="h-10 border-b border-[#d0d7de] bg-[#f6f8fa] flex items-center px-4 justify-between">
+                            <div className="h-10 border-b border-[#d0d7de] bg-[#f6f8fa] flex items-center px-4 justify-between shrink-0">
                                 <div className="flex items-center gap-2 text-sm font-semibold text-[#24292f]">
                                     <FileCode size={16} />
                                     {currentCodeFile.name}
                                 </div>
-                                <span className="text-xs text-[#57606a]">Read-only</span>
+                                <span className="text-xs text-[#57606a]">只读 (Read-only)</span>
                             </div>
-                            <div className="flex-1 overflow-auto p-4 code-scroll">
-                                <pre className="text-sm font-mono text-[#24292f] whitespace-pre">
-                                    {currentCodeFile.content}
-                                </pre>
+                            <div className="flex-1 overflow-hidden">
+                                <Editor
+                                    height="100%"
+                                    defaultLanguage={currentCodeFile.name.endsWith('.ts') || currentCodeFile.name.endsWith('.tsx') ? 'typescript' : 'cpp'}
+                                    value={currentCodeFile.content}
+                                    theme="light"
+                                    options={{
+                                        readOnly: true,
+                                        minimap: { enabled: true },
+                                        scrollBeyondLastLine: false,
+                                    }}
+                                />
                             </div>
                         </>
                     ) : (
@@ -888,7 +918,7 @@ const App: React.FC = () => {
                          <button className="flex items-center gap-2 px-4 py-2 border border-[#d0d7de] text-[#24292f] rounded-md hover:bg-[#f6f8fa] text-sm font-medium transition-colors"
                             onClick={() => setShowConfigPreview(!showConfigPreview)}
                          >
-                            <FileJson size={16} /> {showConfigPreview ? 'Hide JSON' : 'Show Config JSON'}
+                            <FileJson size={16} /> {showConfigPreview ? '隐藏 JSON' : '查看配置 JSON'}
                          </button>
                          <button 
                             onClick={handleSaveConfig}
@@ -905,23 +935,23 @@ const App: React.FC = () => {
                     <div className="bg-white border border-[#d0d7de] rounded-md shadow-sm">
                        <div className="p-4 border-b border-[#d0d7de] bg-[#f6f8fa] flex justify-between items-center">
                           <h3 className="font-bold flex items-center gap-2 text-[#24292f]"><Zap size={18} className="text-[#d29922]" /> 中断上下文 (ISR)</h3>
-                          <span className="text-xs bg-[#eaeef2] px-2 py-1 rounded text-[#57606a]">{isrList.length} defined</span>
+                          <span className="text-xs bg-[#eaeef2] px-2 py-1 rounded text-[#57606a]">{isrList.length} 已定义</span>
                        </div>
                        
                        <div className="p-4 space-y-4">
                           <div className="flex gap-2 items-end">
                              <div className="flex-1">
-                                <label className="block text-xs font-semibold text-[#24292f] mb-1">ISR Function Name</label>
+                                <label className="block text-xs font-semibold text-[#24292f] mb-1">ISR 函数名</label>
                                 <input 
                                   type="text" 
-                                  placeholder="e.g. TIM2_IRQHandler" 
+                                  placeholder="例如： TIM2_IRQHandler" 
                                   className="w-full p-2 border border-[#d0d7de] rounded-md text-sm focus:border-[#0969da] focus:ring-1 focus:ring-[#0969da] outline-none"
                                   value={newISR.functionName || ''}
                                   onChange={e => setNewISR({...newISR, functionName: e.target.value})}
                                 />
                              </div>
                              <div className="w-24">
-                                <label className="block text-xs font-semibold text-[#24292f] mb-1">Priority</label>
+                                <label className="block text-xs font-semibold text-[#24292f] mb-1">优先级</label>
                                 <input 
                                   type="number" 
                                   className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
@@ -930,10 +960,10 @@ const App: React.FC = () => {
                                 />
                              </div>
                              <div className="w-24">
-                                <label className="block text-xs font-semibold text-[#24292f] mb-1">HW ID</label>
+                                <label className="block text-xs font-semibold text-[#24292f] mb-1">硬件 ID</label>
                                 <input 
                                   type="text" 
-                                  placeholder="Vec #"
+                                  placeholder="向量号"
                                   className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
                                   value={newISR.hardwareId}
                                   onChange={e => setNewISR({...newISR, hardwareId: e.target.value})}
@@ -961,7 +991,7 @@ const App: React.FC = () => {
                                   <button onClick={() => deleteISR(isr.id)} className="text-[#57606a] hover:text-[#cf222e]"><Trash2 size={16} /></button>
                                </div>
                              ))}
-                             {isrList.length === 0 && <div className="text-center text-[#57606a] text-sm py-4 italic">No ISRs defined</div>}
+                             {isrList.length === 0 && <div className="text-center text-[#57606a] text-sm py-4 italic">暂无定义 ISR</div>}
                           </div>
                        </div>
                     </div>
@@ -994,7 +1024,7 @@ const App: React.FC = () => {
                               {/* Identifier Input */}
                               <div>
                                   <label className="block text-xs font-semibold text-[#57606a] mb-1">
-                                      {newRule.mode === 'FUNCTION' ? 'Function Name (e.g., disable_irq)' : 'Register Name (e.g., IER)'}
+                                      {newRule.mode === 'FUNCTION' ? '函数名称 (例如：disable_irq)' : '寄存器名称 (例如：IER)'}
                                   </label>
                                   <input 
                                       type="text"
@@ -1008,20 +1038,20 @@ const App: React.FC = () => {
                               {newRule.mode === 'FUNCTION' && (
                                   <div className="grid grid-cols-2 gap-3">
                                       <div>
-                                          <label className="block text-xs font-semibold text-[#57606a] mb-1">Pattern Type</label>
+                                          <label className="block text-xs font-semibold text-[#57606a] mb-1">匹配模式</label>
                                           <select 
                                               className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
                                               value={newRule.pattern}
                                               onChange={(e: any) => setNewRule({...newRule, pattern: e.target.value})}
                                           >
-                                              <option value="SIMPLE">Any Call</option>
-                                              <option value="ARG_MATCH">Argument Value Match</option>
-                                              <option value="ARG_AS_ID">Arg maps to ISR HW ID</option>
+                                              <option value="SIMPLE">任意调用</option>
+                                              <option value="ARG_MATCH">参数值匹配</option>
+                                              <option value="ARG_AS_ID">参数映射到 HW ID</option>
                                           </select>
                                       </div>
                                       {newRule.pattern === 'ARG_MATCH' && (
                                           <div>
-                                              <label className="block text-xs font-semibold text-[#57606a] mb-1">Arg Index & Value</label>
+                                              <label className="block text-xs font-semibold text-[#57606a] mb-1">参数索引 & 值</label>
                                               <div className="flex gap-1">
                                                   <input type="number" placeholder="Idx" className="w-12 p-2 border border-[#d0d7de] rounded-md text-sm" 
                                                       value={newRule.argIndex} onChange={e => setNewRule({...newRule, argIndex: parseInt(e.target.value)})}
@@ -1034,7 +1064,7 @@ const App: React.FC = () => {
                                       )}
                                       {newRule.pattern === 'ARG_AS_ID' && (
                                            <div>
-                                              <label className="block text-xs font-semibold text-[#57606a] mb-1">Argument Index</label>
+                                              <label className="block text-xs font-semibold text-[#57606a] mb-1">参数索引</label>
                                               <input type="number" placeholder="Idx" className="w-full p-2 border border-[#d0d7de] rounded-md text-sm" 
                                                       value={newRule.argIndex} onChange={e => setNewRule({...newRule, argIndex: parseInt(e.target.value)})}
                                               />
@@ -1047,20 +1077,20 @@ const App: React.FC = () => {
                               {newRule.mode === 'REGISTER' && (
                                   <div className="grid grid-cols-2 gap-3">
                                       <div>
-                                          <label className="block text-xs font-semibold text-[#57606a] mb-1">Bit Logic Mode</label>
+                                          <label className="block text-xs font-semibold text-[#57606a] mb-1">位逻辑模式</label>
                                           <select 
                                               className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
                                               value={newRule.regBitMode}
                                               onChange={(e: any) => setNewRule({...newRule, regBitMode: e.target.value})}
                                           >
-                                              <option value="FIXED">Fixed Bit Index</option>
-                                              <option value="DYNAMIC">Dynamic (1 &lt;&lt; N)</option>
+                                              <option value="FIXED">固定位索引</option>
+                                              <option value="DYNAMIC">动态位 (1 &lt;&lt; N)</option>
                                           </select>
                                       </div>
                                       
                                       {newRule.regBitMode === 'FIXED' && (
                                            <div>
-                                              <label className="block text-xs font-semibold text-[#57606a] mb-1">Bit Index (0-63)</label>
+                                              <label className="block text-xs font-semibold text-[#57606a] mb-1">位索引 (0-63)</label>
                                               <input type="number" className="w-full p-2 border border-[#d0d7de] rounded-md text-sm" 
                                                   value={newRule.regBitIndex} onChange={e => setNewRule({...newRule, regBitIndex: parseInt(e.target.value)})}
                                               />
@@ -1068,14 +1098,14 @@ const App: React.FC = () => {
                                       )}
 
                                       <div>
-                                          <label className="block text-xs font-semibold text-[#57606a] mb-1">Polarity (What disables?)</label>
+                                          <label className="block text-xs font-semibold text-[#57606a] mb-1">极性 (何值禁用?)</label>
                                           <select 
                                               className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
                                               value={newRule.regPolarity}
                                               onChange={(e: any) => setNewRule({...newRule, regPolarity: e.target.value})}
                                           >
-                                              <option value="1_DISABLES">1 = Disable / Mask</option>
-                                              <option value="0_DISABLES">0 = Disable / Mask</option>
+                                              <option value="1_DISABLES">1 = 禁用 / 屏蔽</option>
+                                              <option value="0_DISABLES">0 = 禁用 / 屏蔽</option>
                                           </select>
                                       </div>
                                   </div>
@@ -1084,25 +1114,25 @@ const App: React.FC = () => {
                               {/* Action & Scope */}
                               <div className="grid grid-cols-2 gap-3 border-t border-[#d0d7de] pt-3">
                                    <div>
-                                       <label className="block text-xs font-semibold text-[#57606a] mb-1">Effect Action</label>
+                                       <label className="block text-xs font-semibold text-[#57606a] mb-1">控制效果</label>
                                        <select 
                                           className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none font-bold"
                                           value={newRule.action}
                                           onChange={(e: any) => setNewRule({...newRule, action: e.target.value})}
                                        >
-                                          <option value="DISABLE">DISABLE Interrupts</option>
-                                          <option value="ENABLE">ENABLE Interrupts</option>
+                                          <option value="DISABLE">DISABLE (关中断)</option>
+                                          <option value="ENABLE">ENABLE (开中断)</option>
                                        </select>
                                    </div>
                                    <div>
-                                       <label className="block text-xs font-semibold text-[#57606a] mb-1">Scope</label>
+                                       <label className="block text-xs font-semibold text-[#57606a] mb-1">作用范围</label>
                                        <select 
                                           className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
                                           value={newRule.targetScope}
                                           onChange={(e: any) => setNewRule({...newRule, targetScope: e.target.value})}
                                        >
-                                          <option value="GLOBAL">Global (All ISRs)</option>
-                                          <option value="SPECIFIC">Specific ISR</option>
+                                          <option value="GLOBAL">全局 (Global)</option>
+                                          <option value="SPECIFIC">特定 ISR</option>
                                        </select>
                                    </div>
                               </div>
@@ -1110,13 +1140,13 @@ const App: React.FC = () => {
                               {/* Specific ISR Linkage */}
                               {newRule.targetScope === 'SPECIFIC' && newRule.pattern !== 'ARG_AS_ID' && newRule.regBitMode !== 'DYNAMIC' && (
                                    <div>
-                                       <label className="block text-xs font-semibold text-[#57606a] mb-1">Target ISR</label>
+                                       <label className="block text-xs font-semibold text-[#57606a] mb-1">目标 ISR</label>
                                        <select 
                                           className="w-full p-2 border border-[#d0d7de] rounded-md text-sm outline-none"
                                           value={newRule.linkedIsrId || ''}
                                           onChange={e => setNewRule({...newRule, linkedIsrId: e.target.value})}
                                        >
-                                          <option value="">-- Select ISR --</option>
+                                          <option value="">-- 选择 ISR --</option>
                                           {isrList.map(isr => (
                                               <option key={isr.id} value={isr.id}>{isr.functionName}</option>
                                           ))}
@@ -1125,7 +1155,7 @@ const App: React.FC = () => {
                               )}
 
                               <button onClick={addRule} className="w-full py-2 bg-[#24292f] text-white rounded-md hover:bg-[#373e47] flex justify-center items-center gap-2 text-sm font-medium">
-                                  <Plus size={16} /> Add Rule
+                                  <Plus size={16} /> 添加规则
                               </button>
                           </div>
 
@@ -1143,8 +1173,8 @@ const App: React.FC = () => {
                                           <button onClick={() => deleteRule(rule.id)} className="text-[#57606a] hover:text-[#cf222e]"><Trash2 size={14} /></button>
                                       </div>
                                       <div className="text-xs text-[#57606a] grid grid-cols-2 gap-2">
-                                          <div><span className="font-semibold">Match:</span> {renderRuleDescription(rule)}</div>
-                                          <div><span className="font-semibold">Target:</span> {getLinkedIsrName(rule)}</div>
+                                          <div><span className="font-semibold">匹配:</span> {renderRuleDescription(rule)}</div>
+                                          <div><span className="font-semibold">目标:</span> {getLinkedIsrName(rule)}</div>
                                       </div>
                                   </div>
                               ))}
@@ -1155,7 +1185,7 @@ const App: React.FC = () => {
                  
                  {showConfigPreview && (
                     <div className="mt-8">
-                        <h3 className="text-sm font-bold text-[#57606a] mb-2">JSON Preview (For Engine)</h3>
+                        <h3 className="text-sm font-bold text-[#57606a] mb-2">JSON 预览 (引擎格式)</h3>
                         <div className="bg-[#f6f8fa] p-4 rounded-md border border-[#d0d7de] font-mono text-xs overflow-auto max-h-64">
                             <pre>{JSON.stringify({ isrs: isrList, rules: controlRules }, null, 2)}</pre>
                         </div>

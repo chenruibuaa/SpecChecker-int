@@ -11,8 +11,9 @@ function createWindow() {
     minHeight: 768,
     title: "SpecChecker-Int",
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false, // For easier demo integration
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
       webSecurity: false
     }
   });
@@ -88,12 +89,12 @@ ipcMain.handle('run-analysis-engine', async (event, projectPath) => {
   
   // Simulate steps
   const steps = [
-    { progress: 10, message: "Initializing Engine..." },
-    { progress: 30, message: "Parsing Source Code (AST Generation)..." },
-    { progress: 50, message: "Building Control Flow Graphs..." },
-    { progress: 70, message: "Analyzing Concurrency & Data Flow..." },
-    { progress: 90, message: "Verifying Interrupt Rules..." },
-    { progress: 100, message: "Generating Report..." }
+    { progress: 10, message: "正在初始化引擎..." },
+    { progress: 30, message: "解析源代码 (AST 生成中)..." },
+    { progress: 50, message: "构建控制流图 (CFG)..." },
+    { progress: 70, message: "分析并发与数据流..." },
+    { progress: 90, message: "验证中断控制规则..." },
+    { progress: 100, message: "正在生成报告..." }
   ];
 
   for (const step of steps) {
@@ -116,8 +117,8 @@ ipcMain.handle('run-analysis-engine', async (event, projectPath) => {
     issues: [
        {
         id: "eng-001",
-        title: "Interrupt Re-entrancy Violation",
-        description: "ISR 'TIM2_IRQHandler' invokes non-reentrant function 'printf' without locking.",
+        title: "中断重入违规",
+        description: "ISR 'TIM2_IRQHandler' 调用了不可重入函数 'printf' 且未加锁。",
         severity: "CRITICAL",
         type: "CONCURRENCY",
         status: "OPEN",
@@ -131,8 +132,8 @@ ipcMain.handle('run-analysis-engine', async (event, projectPath) => {
        },
        {
         id: "eng-002",
-        title: "Uninitialized Memory Access",
-        description: "Variable 'config_buffer' accessed before initialization path completes.",
+        title: "未初始化内存访问",
+        description: "变量 'config_buffer' 在初始化路径完成前被访问。",
         severity: "HIGH",
         type: "QUALITY",
         status: "OPEN",
@@ -142,8 +143,8 @@ ipcMain.handle('run-analysis-engine', async (event, projectPath) => {
        },
        {
         id: "eng-003",
-        title: "Shared Variable Race Condition",
-        description: "Global 'system_state' modified by Main and ISR without atomicity.",
+        title: "共享变量数据竞争",
+        description: "全局变量 'system_state' 被主循环和 ISR 修改，缺乏原子性保护。",
         severity: "CRITICAL",
         type: "CONCURRENCY",
         status: "OPEN",
@@ -167,8 +168,8 @@ ipcMain.handle('run-analysis-engine', async (event, projectPath) => {
        },
        {
          id: "eng-004",
-         title: "Buffer Overflow",
-         description: "Write past end of buffer 'rx_buffer' in UART handler.",
+         title: "缓冲区溢出",
+         description: "在 UART 处理程序中写入超过 'rx_buffer' 结尾。",
          severity: "HIGH",
          type: "SECURITY",
          status: "OPEN",
