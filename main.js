@@ -2,6 +2,8 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const jschardet = require('jschardet');
+const iconv = require('iconv-lite');
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -76,10 +78,29 @@ ipcMain.handle('read-project-tree', async (event, projectPath) => {
   }
 });
 
-// 3. Read File Content
+// 3. Read File Content with Encoding Detection
 ipcMain.handle('read-file-content', async (event, filePath) => {
   try {
-    return fs.readFileSync(filePath, 'utf-8');
+    // Read raw buffer
+    const buffer = fs.readFileSync(filePath);
+    
+    // Detect encoding
+    const detected = jschardet.detect(buffer);
+    let encoding = detected.encoding;
+
+    // Default to utf-8 if detection fails or confidence is low
+    if (!encoding || detected.confidence < 0.8) {
+        encoding = 'utf-8';
+    }
+
+    // Check if iconv supports the encoding, otherwise default to utf-8
+    if (!iconv.encodingExists(encoding)) {
+        encoding = 'utf-8';
+    }
+
+    // Decode content
+    const content = iconv.decode(buffer, encoding);
+    return content;
   } catch (error) {
     return `Error reading file: ${error.message}`;
   }

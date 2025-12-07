@@ -43,7 +43,8 @@ import {
   FileText,
   Package,
   Check,
-  Ban
+  Ban,
+  GitBranch
 } from 'lucide-react';
 import Editor, { useMonaco } from '@monaco-editor/react';
 import { MOCK_ISSUES } from './constants';
@@ -54,6 +55,11 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, L
 
 // Fix for Editor type definition issue where props are inferred as never
 const MonacoEditor = Editor as any;
+
+// Simple path utility for browser environment to fix missing module error
+const path = {
+  basename: (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || ''
+};
 
 // --- Configuration Types ---
 interface ISRConfig {
@@ -90,18 +96,23 @@ interface ControlRule {
   targetDetail?: string;   // Fallback text description
 }
 
-// --- File Explorer Component ---
-const FileTreeItem: React.FC<{ node: FileNode; onFileClick: (path: string) => void }> = ({ node, onFileClick }) => {
+// --- File Explorer Component (GitHub Style) ---
+const FileTreeItem: React.FC<{ node: FileNode; onFileClick: (path: string) => void; depth?: number }> = ({ node, onFileClick, depth = 0 }) => {
   const [isOpen, setIsOpen] = useState(false);
+
+  // GitHub Style: Indent content but keep hover full width.
+  // We use padding-left based on depth.
+  const paddingLeft = `${depth * 12 + 10}px`;
 
   if (!node.isDirectory) {
     return (
       <div 
         onClick={() => onFileClick(node.path)}
-        className="flex items-center gap-2 py-1 px-2 text-xs text-[#57606a] hover:bg-[#d0d7de] cursor-pointer rounded-sm ml-4 transition-colors"
+        className="group flex items-center gap-2 py-1.5 cursor-pointer hover:bg-[#eaeef2] text-[#24292f] transition-colors"
+        style={{ paddingLeft }}
       >
-        <File size={12} className="text-[#57606a]" />
-        <span className="truncate">{node.name}</span>
+        <FileText size={14} className="text-[#57606a] group-hover:text-[#24292f]" />
+        <span className="truncate text-sm">{node.name}</span>
       </div>
     );
   }
@@ -110,16 +121,19 @@ const FileTreeItem: React.FC<{ node: FileNode; onFileClick: (path: string) => vo
     <div>
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 py-1 px-2 text-xs text-[#24292f] font-medium hover:bg-[#d0d7de] cursor-pointer rounded-sm transition-colors"
+        className="group flex items-center gap-2 py-1.5 cursor-pointer hover:bg-[#eaeef2] text-[#24292f] font-medium transition-colors"
+        style={{ paddingLeft }}
       >
-        {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Folder size={12} className="text-[#54aeff]" />
-        <span className="truncate">{node.name}</span>
+        <div className="w-3 text-[#57606a]">
+            {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
+        <Folder size={14} className="text-[#54aeff] fill-[#54aeff]/20" />
+        <span className="truncate text-sm">{node.name}</span>
       </div>
       {isOpen && node.children && (
-        <div className="pl-2 border-l border-[#d0d7de] ml-2">
+        <div>
           {node.children.map((child) => (
-            <FileTreeItem key={child.path} node={child} onFileClick={onFileClick} />
+            <FileTreeItem key={child.path} node={child} onFileClick={onFileClick} depth={depth + 1} />
           ))}
         </div>
       )}
@@ -138,7 +152,7 @@ const App: React.FC = () => {
   // Project State
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
-  const [currentCodeFile, setCurrentCodeFile] = useState<{name: string, content: string} | null>(null);
+  const [currentCodeFile, setCurrentCodeFile] = useState<{name: string, content: string, path: string} | null>(null);
 
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -252,7 +266,8 @@ const App: React.FC = () => {
     const content = await api.invoke('read-file-content', filePath);
     // Simple extraction of file name
     const name = filePath.split(/[\\/]/).pop() || 'unknown';
-    setCurrentCodeFile({ name, content });
+    // Passing full path is essential for Monaco definition lookup to work (somewhat)
+    setCurrentCodeFile({ name, content, path: filePath });
     setView('code');
   };
 
@@ -523,6 +538,15 @@ const App: React.FC = () => {
       return mapping;
   };
 
+  // Breadcrumbs Helper
+  const getBreadcrumbs = () => {
+    if (!projectPath || !currentCodeFile) return [];
+    // Relative path
+    const relPath = currentCodeFile.path.replace(projectPath, '');
+    const parts = relPath.split(/[\\/]/).filter(Boolean);
+    return [path.basename(projectPath), ...parts];
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#f6f8fa] text-[#24292f]">
       {/* Inject Style for Monaco Decoration */}
@@ -636,14 +660,17 @@ const App: React.FC = () => {
       {/* Main Content Area with Sidebar */}
       <div className="flex flex-1 overflow-hidden">
          
-         {/* File Explorer Sidebar - Only show in Code View */}
+         {/* File Explorer Sidebar - GitHub Style - Only show in Code View */}
          {projectPath && view === 'code' && (
            <aside className="w-64 bg-white border-r border-[#d0d7de] flex flex-col shrink-0">
               <div className="p-3 border-b border-[#d0d7de] bg-[#f6f8fa] flex items-center gap-2">
-                 <Layers size={14} className="text-[#57606a]" />
-                 <span className="text-xs font-semibold text-[#24292f] truncate">{projectPath.split(/[\\/]/).pop()}</span>
+                 <GitBranch size={14} className="text-[#57606a]" />
+                 <span className="text-xs font-semibold text-[#24292f] truncate">
+                    {path.basename(projectPath)}
+                    <span className="text-[#57606a] font-normal ml-1">/ main</span>
+                 </span>
               </div>
-              <div className="flex-1 overflow-y-auto p-2">
+              <div className="flex-1 overflow-y-auto pt-1">
                  {fileTree.length === 0 ? (
                     <div className="text-xs text-[#57606a] p-2 text-center">正在加载文件...</div>
                  ) : (
@@ -906,16 +933,34 @@ const App: React.FC = () => {
                 <div className="flex flex-col h-full bg-white">
                     {currentCodeFile ? (
                         <>
-                            <div className="h-10 border-b border-[#d0d7de] bg-[#f6f8fa] flex items-center px-4 justify-between shrink-0">
-                                <div className="flex items-center gap-2 text-sm font-semibold text-[#24292f]">
-                                    <FileCode size={16} />
-                                    {currentCodeFile.name}
+                            {/* Breadcrumb Header */}
+                            <div className="h-9 border-b border-[#d0d7de] bg-[#f6f8fa] flex items-center px-4 justify-between shrink-0">
+                                <div className="flex items-center text-sm text-[#24292f] overflow-hidden">
+                                    <div className="flex items-center text-[#57606a] hover:bg-[#eaeef2] px-1.5 py-0.5 rounded cursor-pointer transition-colors">
+                                        <GitBranch size={14} className="mr-1.5"/>
+                                        <span className="font-semibold text-xs truncate max-w-[100px]">{getBreadcrumbs()[0]}</span>
+                                    </div>
+                                    <span className="mx-1 text-[#d0d7de]">/</span>
+                                    {getBreadcrumbs().slice(1, -1).map((part, i) => (
+                                        <React.Fragment key={i}>
+                                            <span className="text-[#57606a] hover:text-[#0969da] hover:underline cursor-pointer truncate max-w-[120px]">{part}</span>
+                                            <span className="mx-1 text-[#d0d7de]">/</span>
+                                        </React.Fragment>
+                                    ))}
+                                    <span className="font-bold text-[#24292f] flex items-center gap-2">
+                                        <FileCode size={14} className="text-[#57606a]" />
+                                        {currentCodeFile.name}
+                                    </span>
                                 </div>
-                                <span className="text-xs text-[#57606a]">只读 (Read-only)</span>
+                                <span className="text-xs text-[#57606a] px-2 py-0.5 rounded border border-[#d0d7de]">
+                                    {currentCodeFile.name.endsWith('c') ? 'C' : currentCodeFile.name.endsWith('cpp') ? 'C++' : 'Text'}
+                                </span>
                             </div>
+                            
                             <div className="flex-1 overflow-hidden">
                                 <MonacoEditor
                                     height="100%"
+                                    path={currentCodeFile.path} // Critical for IntelliSense mapping
                                     defaultLanguage={currentCodeFile.name.endsWith('.ts') || currentCodeFile.name.endsWith('.tsx') ? 'typescript' : 'cpp'}
                                     value={currentCodeFile.content}
                                     theme="light"
@@ -923,6 +968,8 @@ const App: React.FC = () => {
                                         readOnly: true,
                                         minimap: { enabled: true },
                                         scrollBeyondLastLine: false,
+                                        contextmenu: true, // Enable context menu for Go to Def
+                                        fontFamily: 'Consolas, "Courier New", monospace',
                                     }}
                                 />
                             </div>
